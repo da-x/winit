@@ -105,10 +105,25 @@ impl MonitorId {
 
 impl XConnection {
     pub fn get_monitor_for_window(&self, window_rect: Option<util::AaRect>) -> MonitorId {
-        let monitors = self.get_available_monitors();
-        let default = monitors
-            .get(0)
-            .expect("[winit] Failed to find any monitors using XRandR.");
+        let time = std::time::Instant::now();
+        let mut monitors;
+
+        let default = loop {
+            monitors = Some(self.get_available_monitors());
+            match monitors.as_ref().unwrap().get(0) {
+                None => {
+                    if time.elapsed().as_secs() <= 2 {
+                        std::thread::sleep(std::time::Duration::new(0, 100_000_000));
+                        continue;
+                    }
+                    panic!("[winit] Timeout finding any monitors using XRandR.");
+                }
+                Some(monitor_id) => {
+                    break monitor_id.clone();
+                }
+            }
+        };
+        let monitors = monitors.as_ref().unwrap();
 
         let window_rect = match window_rect {
             Some(rect) => rect,
@@ -117,15 +132,15 @@ impl XConnection {
 
         let mut largest_overlap = 0;
         let mut matched_monitor = default;
-        for monitor in &monitors {
+        for monitor in monitors {
             let overlapping_area = window_rect.get_overlapping_area(&monitor.rect);
             if overlapping_area > largest_overlap {
                 largest_overlap = overlapping_area;
-                matched_monitor = &monitor;
+                matched_monitor = monitor.to_owned();
             }
         }
 
-        matched_monitor.to_owned()
+        matched_monitor
     }
 
     fn query_monitor_list(&self) -> Vec<MonitorId> {
